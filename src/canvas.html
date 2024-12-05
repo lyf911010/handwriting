@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <button id="playBtn">生成</button>
+  <button id="exportBtn">导出</button>
+  <script type="module">
+    import ffmpeg from '../utils/ffmpeg.mjs'
+
+    const playBtn = document.querySelector('#playBtn');
+    const exportBtn = document.querySelector('#exportBtn');
+    const frameCount = 10
+    let timer = null
+
+    function startCanvas(index) {
+      const canvas = document.querySelector('#canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.reset();
+      ctx.fillStyle = "blue";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "red";
+      ctx.font = "80px serif";
+      ctx.fillText(`第${index}帧`, 50,  100);
+      return canvas;
+    }
+
+    startCanvas(0)
+
+    playBtn.onclick = function() {
+      let frameIndex = 0
+      timer = setInterval(() => {
+        startCanvas(frameIndex++)
+        if (frameIndex === frameCount) clearInterval(timer)
+      }, 16)
+    }
+
+    exportBtn.onclick = async function() {
+      let framesCount = 0;
+      let frameIndex = 0;
+
+      const chunks = []
+      const fps = 25;
+
+
+      async function renderMP4() {
+        const buffers = chunks.map(chunk => {
+          const buffer = new ArrayBuffer(chunk.byteLength);
+          chunk.copyTo(buffer);
+          return buffer;
+        });
+
+        const byteLength = buffers.reduce((length, buffer) => length + buffer.byteLength, 0);
+        const u8Array = new Uint8Array(byteLength);
+
+        let offset = 0;
+        for (const buffer of buffers) {
+          u8Array.set(new Uint8Array(buffer), offset);
+          offset += buffer.byteLength;
+        }
+
+        const inputs = [{ name: "1.h264", data: u8Array }];
+
+        const inputArgs = inputs.map(input => "-i " + input.name).join(" ");
+
+        const mp4Buffer = (
+          await ffmpeg({
+            MEMFS: inputs,
+            arguments: `${inputArgs} -c:v copy -movflags faststart out.mp4`.split(/\s+/),
+          })
+        ).MEMFS[0].data;
+
+        const mp4Blob = new Blob([mp4Buffer], { type: "video/mp4" });
+        open(URL.createObjectURL(mp4Blob));
+      }
+
+      const encoder = new VideoEncoder({
+        async output(chunk) {
+          chunks.push(chunk);
+          if (chunks.length !== framesCount) {
+            console.log('frameIndex', frameIndex)
+            console.log('chunks', chunks)
+            return
+          };
+          await renderMP4();
+        },
+        error(error) {
+          console.log(error.message);
+        },
+      });
+    
+      while(true) {
+        const frame = await startCanvas(frameIndex++)
+
+        if (frameIndex === 10) {
+          framesCount = frameIndex - 1;
+          if (encoder.encodeQueueSize === 0) await renderMP4();
+
+          encoder.flush();
+
+          break;
+        }
+
+        const width = frame.displayWidth || frame.naturalWidth || frame.width;
+        const height = frame.displayHeight || frame.naturalHeight || frame.height;
+
+        encoder.configure({
+          codec: "avc1.420034",
+          width: width % 2 ? width + 1 : width,
+          height: height % 2 ? height + 1 : height,
+          hardwareAcceleration: "prefer-software",
+          avc: { format: "annexb" },
+        });
+
+        const videoFrame = frame instanceof VideoFrame ? frame : new VideoFrame(frame, { timestamp: (1e6 / fps) * frameIndex });
+        encoder.encode(videoFrame);
+        videoFrame.close();
+      }
+    
+    }
+  </script>
+</body>
+</html>

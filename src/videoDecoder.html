@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  <input type="file" />
+  <script src="../utils/mp4box.all.js"></script>
+  <script type="module">
+    const mp4boxfile = MP4Box.createFile();
+
+    const inputDom = document.querySelector('input')
+
+    inputDom.onchange = async function(e) {
+      const file = e.target.files[0]
+      let fileBuffer = await file.arrayBuffer();
+      fileBuffer.fileStart = 0;
+      mp4boxfile.appendBuffer(fileBuffer)
+      mp4boxfile.flush()
+    }
+
+    mp4boxfile.onReady = function(info) {
+      console.log('onReady', info);
+    }
+
+    mp4boxfile.onSamples = function(id, user, samples) {
+      console.log('onSamples', {id, user, samples})
+    }
+
+  </script>
+</body>
+</html>

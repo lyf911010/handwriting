@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <style>
+    img {
+      width: 32vw
+    }
+  </style>
+</head>
+<body>
+  <img src="https://bing.com/th?id=OHR.CircumnavigationAnni_ZH-CN6835512993_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <img src="https://bing.com/th?id=OHR.SquirrelMushroom_ZH-CN2854383605_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <img src="https://bing.com/th?id=OHR.TaigaRoad_ZH-CN2567537158_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <img src="https://bing.com/th?id=OHR.SeitanLimania_ZH-CN3831790369_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <img src="https://bing.com/th?id=OHR.WildlifeCrossing_ZH-CN1493053695_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <img src="https://bing.com/th?id=OHR.EstoniaBaltic_ZH-CN0314555299_1920x1080.jpg" alt="" srcset="" crossOrigin>
+  <button id="btn">生成视频</button>
+  <script type="module">
+    import ffmpeg from '../utils/ffmpeg.mjs'
+
+    const renderBtn = document.querySelector('#btn');
+
+    renderBtn.onclick = handleRender
+
+    function handleRender() {
+      let frameIdx = 0;
+      let frameCount = 0;
+      const fps = 25;
+      const chunks = []
+      const encoder = new VideoEncoder({
+        async output(chunk) {
+          chunks.push(chunk)
+          if (chunks.length !== frameCount) return
+          await renderMP4(chunks)
+        },
+        error() {}
+      })
+      
+      while(true) {
+        const frame = document.querySelectorAll('img').item(parseInt(frameIdx / 25))
+
+        frameIdx++
+        
+        if (!frame) {
+          frameCount = frameIdx - 1
+          encoder.flush();
+          break;
+        }
+
+        const width = frame.width
+        const height = frame.height
+
+        encoder.configure({
+          codec: "avc1.420034",
+          width: width % 2 ? width + 1 : width,
+          height: height % 2 ? height + 1 : height,
+          hardwareAcceleration: "prefer-software",
+          avc: { format: "annexb" },
+        })
+
+        const videoFrame = new VideoFrame(frame, { timestamp: (1e6 / fps) * frameIdx })
+        encoder.encode(videoFrame)
+        videoFrame.close()
+      }
+    }
+
+    async function renderMP4(chunks) {
+        const buffers = chunks.map(chunk => {
+          const buffer = new ArrayBuffer(chunk.byteLength);
+          chunk.copyTo(buffer);
+          return buffer;
+        });
+
+        const byteLength = buffers.reduce((length, buffer) => length + buffer.byteLength, 0);
+        const u8Array = new Uint8Array(byteLength);
+
+        let offset = 0;
+        for (const buffer of buffers) {
+          u8Array.set(new Uint8Array(buffer), offset);
+          offset += buffer.byteLength;
+        }
+
+        const inputs = [{ name: "1.h264", data: u8Array }];
+
+        const inputArgs = inputs.map(input => "-i " + input.name).join(" ");
+
+        const mp4Buffer = (
+          await ffmpeg({
+            MEMFS: inputs,
+            arguments: `${inputArgs} -c:v copy -movflags faststart out.mp4`.split(/\s+/),
+          })
+        ).MEMFS[0].data;
+        console.log(`${inputArgs} -c:v copy -movflags faststart out.mp4`.split(/\s+/))
+
+        const mp4Blob = new Blob([mp4Buffer], { type: "video/mp4" });
+        open(URL.createObjectURL(mp4Blob));
+      }
+  </script>
+</body>
+</html>
