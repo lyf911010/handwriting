@@ -13,6 +13,12 @@
 
     const inputDom = document.querySelector('input')
 
+    let videoDecoder = null
+
+    let nbSampleTotal = 0
+
+    let countSample = 0
+
     inputDom.onchange = async function(e) {
       const file = e.target.files[0]
       let fileBuffer = await file.arrayBuffer();
@@ -23,12 +29,95 @@
 
     mp4boxfile.onReady = function(info) {
       console.log('onReady', info);
+      const videoTrack = info.videoTracks[0]
+      const { codec, track_width, track_height, nb_samples } = videoTrack;
+
+      if (videoTrack) {
+        mp4boxfile.setExtractionOptions(videoTrack.id, 'video', {
+          nbSamples: nb_samples
+        })
+      }
+
+      nbSampleTotal = nb_samples
+
+      initVideoDecoder(codec, track_width, track_height)
+
+      mp4boxfile.start()
+
     }
 
     mp4boxfile.onSamples = function(id, user, samples) {
       console.log('onSamples', {id, user, samples})
+      mp4boxfile.stop()
+
+      countSample += samples.length
+
+      for (const sample of samples) {
+        const type = sample.is_sync ? 'key' : 'delta'
+
+        const chunk = new EncodedVideoChunk({
+          type,
+          timestamp: sample.cts,
+          duration: sample.duration,
+          data: sample.data
+        })
+
+        videoDecoder.decode(chunk)
+      }
+
+      if (countSample === nbSampleTotal) {
+        videoDecoder.flush();
+      }
     }
 
+    async function handleFrame(frame) {
+      const img = await createImageBitmap(frame)
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      canvas.width = frame.displayWidth
+      canvas.height = frame.displayHeight
+      document.body.appendChild(canvas)
+      ctx.drawImage(img,0,0,canvas.width,canvas.height)
+      const url = canvas.toDataURL()
+      const imgDOM = document.createElement('img')
+      imgDOM.src = url
+      imgDOM.width = canvas.width * 0.2
+      imgDOM.height = canvas.height * 0.2
+      document.body.appendChild(imgDOM)
+      document.body.removeChild(canvas)
+      frame.close();
+    }
+
+    function getExtradata() {
+      // 生成VideoDecoder.configure需要的description信息
+      const entry = mp4boxfile.moov.traks[0].mdia.minf.stbl.stsd.entries[0];
+
+      const box = entry.avcC ?? entry.hvcC ?? entry.vpcC;
+      if (box != null) {
+          const stream = new DataStream(
+              undefined,
+              0,
+              DataStream.BIG_ENDIAN
+          )
+          box.write(stream)
+          // slice()方法的作用是移除moov box的header信息
+          return new Uint8Array(stream.buffer.slice(8))
+      }
+    }
+
+    function initVideoDecoder(codec, videoW, videoH) {
+      videoDecoder = new VideoDecoder({
+        output: handleFrame,
+        error: err => console.log(err)
+      })
+
+      videoDecoder.configure({
+        codec: codec,
+        codedWidth: videoW,
+        codedHeight: videoH,
+        description: getExtradata()
+    });
+    }
   </script>
 </body>
 </html>
