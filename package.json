@@ -9,6 +9,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "mp4-muxer": "^5.1.5",
     "mp4box": "^0.5.3"
   }
 }

@@ -20,8 +20,11 @@
   <button id="btn">生成视频</button>
   <script type="module">
     import ffmpeg from '../utils/ffmpeg.mjs'
+    import { Muxer, ArrayBufferTarget } from '../utils/mp4-muxer.mjs'
 
     const renderBtn = document.querySelector('#btn');
+
+    let muxer = null
 
     renderBtn.onclick = handleRender
 
@@ -30,15 +33,30 @@
       let frameCount = 0;
       const fps = 25;
       const chunks = []
+
+      const imgItem = document.querySelectorAll('img').item(0)
+      const width = imgItem.width
+      const height = imgItem.height
+      muxer = new Muxer({
+          target: new ArrayBufferTarget(),
+          video: {
+              codec: 'avc',
+              width: width % 2 ? width + 1 : width,
+              height: height % 2 ? height + 1 : height,
+          },
+          fastStart: 'in-memory',
+          firstTimestampBehavior: 'offset'
+      });
+
       const encoder = new VideoEncoder({
-        async output(chunk) {
+        async output(chunk, metadata) {
           chunks.push(chunk)
           if (chunks.length !== frameCount) return
-          await renderMP4(chunks)
+          createMP4(chunks,metadata)
         },
         error() {}
       })
-      
+
       while(true) {
         const frame = document.querySelectorAll('img').item(parseInt(frameIdx / 25))
 
@@ -65,6 +83,16 @@
         encoder.encode(videoFrame)
         videoFrame.close()
       }
+    }
+
+    function createMP4(chunks, metadata) {
+      for (let i = 0; i < chunks.length; i++) {
+        muxer.addVideoChunk(chunks[i], metadata)
+      }
+      muxer.finalize()
+      const { buffer } = muxer.target
+      const mp4Blob = new Blob([buffer], { type: "video/mp4" });
+      open(URL.createObjectURL(mp4Blob));
     }
 
     async function renderMP4(chunks) {
