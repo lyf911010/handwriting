@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
+  <title>生成视频</title>
   <style>
     img {
       width: 32vw
@@ -18,43 +18,63 @@
   <img src="https://bing.com/th?id=OHR.WildlifeCrossing_ZH-CN1493053695_1920x1080.jpg" alt="" srcset="" crossOrigin>
   <img src="https://bing.com/th?id=OHR.EstoniaBaltic_ZH-CN0314555299_1920x1080.jpg" alt="" srcset="" crossOrigin>
   <button id="btn">生成视频</button>
+  <script src="../utils/mp4box.all.js"></script>
   <script type="module">
-    import ffmpeg from '../utils/ffmpeg.mjs'
-    import { Muxer, ArrayBufferTarget } from '../utils/mp4-muxer.mjs'
-
     const renderBtn = document.querySelector('#btn');
 
-    let muxer = null
+    const mp4file = MP4Box.createFile();
+
+    let vTrackId;
 
     renderBtn.onclick = handleRender
 
-    function handleRender() {
+    async function handleRender() {
       let frameIdx = 0;
       let frameCount = 0;
       const fps = 25;
-      const chunks = []
+
+      
 
       const imgItem = document.querySelectorAll('img').item(0)
       const width = imgItem.width
       const height = imgItem.height
-      muxer = new Muxer({
-          target: new ArrayBufferTarget(),
-          video: {
-              codec: 'avc',
-              width: width % 2 ? width + 1 : width,
-              height: height % 2 ? height + 1 : height,
-          },
-          fastStart: 'in-memory',
-          firstTimestampBehavior: 'offset'
-      });
 
+      const videoEncodingTrackOptions = {
+        timescale: 1e6,
+        width: width,
+        height: height,
+        brands: ["isom", "iso2", "avc1", "mp41"],
+        avcDecoderConfigRecord: null,
+      };
+      
       const encoder = new VideoEncoder({
-        async output(chunk, metadata) {
-          chunks.push(chunk)
-          if (chunks.length !== frameCount) return
-          createMP4(chunks,metadata)
+        async output(chunk, meta) {
+          if (vTrackId === undefined) {
+            videoEncodingTrackOptions.avcDecoderConfigRecord =
+              meta.decoderConfig?.description;
+            vTrackId = mp4file.addTrack(videoEncodingTrackOptions);
+          }
+          const buffer = new ArrayBuffer(chunk.byteLength);
+          chunk.copyTo(buffer);
+
+          const dts = chunk.timestamp;
+          mp4file.addSample(vTrackId, buffer, {
+            duration: chunk.duration ?? 0,
+            dts,
+            cts: dts,
+            is_sync: chunk.type === "key",
+          });
         },
         error() {}
+      })
+
+
+      encoder.configure({
+        codec: "avc1.42E032",
+        width,
+        height,
+        hardwareAcceleration: "prefer-software",
+        avc: { format: "avc" },
       })
 
       while(true) {
@@ -64,68 +84,25 @@
         
         if (!frame) {
           frameCount = frameIdx - 1
-          encoder.flush();
+          await encoder.flush();
           break;
         }
 
-        const width = frame.width
-        const height = frame.height
-
-        encoder.configure({
-          codec: "avc1.420034",
-          width: width % 2 ? width + 1 : width,
-          height: height % 2 ? height + 1 : height,
-          hardwareAcceleration: "prefer-software",
-          avc: { format: "annexb" },
-        })
 
         const videoFrame = new VideoFrame(frame, { timestamp: (1e6 / fps) * frameIdx })
         encoder.encode(videoFrame)
         videoFrame.close()
       }
+      
+      createVideo(encoder)
     }
 
-    function createMP4(chunks, metadata) {
-      for (let i = 0; i < chunks.length; i++) {
-        muxer.addVideoChunk(chunks[i], metadata)
-      }
-      muxer.finalize()
-      const { buffer } = muxer.target
+    async function createVideo(encoder) {
+      const buffer = await mp4file.getBuffer();
+      encoder.close()
       const mp4Blob = new Blob([buffer], { type: "video/mp4" });
       open(URL.createObjectURL(mp4Blob));
     }
-
-    async function renderMP4(chunks) {
-        const buffers = chunks.map(chunk => {
-          const buffer = new ArrayBuffer(chunk.byteLength);
-          chunk.copyTo(buffer);
-          return buffer;
-        });
-
-        const byteLength = buffers.reduce((length, buffer) => length + buffer.byteLength, 0);
-        const u8Array = new Uint8Array(byteLength);
-
-        let offset = 0;
-        for (const buffer of buffers) {
-          u8Array.set(new Uint8Array(buffer), offset);
-          offset += buffer.byteLength;
-        }
-
-        const inputs = [{ name: "1.h264", data: u8Array }];
-
-        const inputArgs = inputs.map(input => "-i " + input.name).join(" ");
-
-        const mp4Buffer = (
-          await ffmpeg({
-            MEMFS: inputs,
-            arguments: `${inputArgs} -c:v copy -movflags faststart out.mp4`.split(/\s+/),
-          })
-        ).MEMFS[0].data;
-        console.log(`${inputArgs} -c:v copy -movflags faststart out.mp4`.split(/\s+/))
-
-        const mp4Blob = new Blob([mp4Buffer], { type: "video/mp4" });
-        open(URL.createObjectURL(mp4Blob));
-      }
   </script>
 </body>
 </html>
