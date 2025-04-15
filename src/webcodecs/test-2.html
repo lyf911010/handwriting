@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <input type="file" id="videoInput" accept="video/*">
+    <button id="convertBtn">转换为图片</button>
+    <script>
+        // 创建视频元素
+        const video = document.createElement('video');
+        video.setAttribute('crossOrigin', 'anonymous');
+
+        // 创建canvas元素
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // 视频元数据加载完成后设置canvas尺寸
+        video.addEventListener('loadedmetadata', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        });
+
+        // 视频帧截图函数
+        function captureFrame(videoSrc, timeInSeconds) {
+            return new Promise((resolve, reject) => {
+                // 验证时间值是否有效
+                if (!Number.isFinite(timeInSeconds) || timeInSeconds < 0) {
+                    reject(new Error('Invalid time value'));
+                    return;
+                }
+                video.src = videoSrc;
+                
+                video.addEventListener('seeked', () => {
+                // 将视频帧绘制到canvas上
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    // 获取图片数据URL
+                    const imageData = canvas.toDataURL('image/jpeg');
+                    resolve(imageData);
+                });
+                
+                video.addEventListener('error', (e) => {
+                    reject(e);
+                });
+
+                // 加载视频
+                video.load();
+                // 跳转到指定时间点
+                video.currentTime = timeInSeconds;
+            });
+        }
+
+        // 使用示例
+        async function convertVideoToImages(videoSrc, frameCount) {
+            const images = [];
+            
+            // 获取视频时长
+            await new Promise((resolve, reject) => {
+                video.addEventListener('loadedmetadata', () => {
+                    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+                        reject(new Error('无法获取有效视频时长'));
+                        return;
+                    }
+                    resolve();
+                });
+                video.addEventListener('error', (e) => {
+                    reject(new Error('视频加载失败'));
+                });
+                video.src = videoSrc;
+            });
+            
+            const duration = video.duration;
+            console.log(duration);
+            // 确保视频有有效时长
+            if (!Number.isFinite(duration) || duration <= 0) {
+                throw new Error('Invalid video duration');
+            }
+            const interval = duration / frameCount;
+            
+            // 按时间间隔截图
+            for (let i = 1; i <= frameCount; i++) {
+                const time = i * interval;
+                const image = await captureFrame(videoSrc, time);
+                images.push(image);
+            }
+            
+            return images;
+        }
+
+        document.getElementById('convertBtn').addEventListener('click', async () => {
+            const file = document.getElementById('videoInput').files[0];
+            if (!file) return;
+            try {
+                const videoUrl = URL.createObjectURL(file);
+                // 获取视频元数据
+                await new Promise((resolve) => {
+                    video.addEventListener('loadedmetadata', () => {
+                        resolve();
+                    });
+                    video.src = videoUrl;
+                });
+                const frameRate = 1; // 你的视频帧率
+                const totalFrames = 5; // 你的视频总帧数
+                const captureCount = Math.min(totalFrames, Math.ceil(video.duration * frameRate));
+                console.log('captureCount', captureCount);
+                const images = await convertVideoToImages(videoUrl, captureCount);
+
+                // 处理生成的图片
+                images.forEach((imgData, index) => {
+                    const img = document.createElement('img');
+                    img.src = imgData;
+                    document.body.appendChild(img);
+                    
+                    // // 也可以下载图片
+                    // const a = document.createElement('a');
+                    // a.href = imgData;
+                    // a.download = `frame_${index}.jpg`;
+                    // a.click();
+                });
+            } catch (error) {
+                console.error('处理视频失败:', error);
+            }
+            
+        });
+    </script>
+</body>
+</html>

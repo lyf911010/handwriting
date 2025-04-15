@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图片转视频工具</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .container {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      #preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 20px;
+      }
+      #preview img {
+        max-width: 150px;
+        max-height: 150px;
+      }
+      button {
+        padding: 10px 15px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      button:disabled {
+        background-color: #cccccc;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>图片转视频工具</h1>
+
+      <input type="file" id="image-input" accept="image/*" multiple />
+      <button id="convert-btn" disabled>转换为视频</button>
+
+      <div id="preview"></div>
+
+      <video id="output-video" controls style="display: none"></video>
+    </div>
+
+    <script src="./test-3.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const imageInput = document.getElementById("image-input");
+        const convertBtn = document.getElementById("convert-btn");
+        const preview = document.getElementById("preview");
+        const outputVideo = document.getElementById("output-video");
+
+        imageInput.addEventListener("change", async (e) => {
+          preview.innerHTML = "";
+          const files = Array.from(e.target.files);
+
+          if (files.length === 0) {
+            convertBtn.disabled = true;
+            return;
+          }
+
+          convertBtn.disabled = false;
+
+          // 显示图片预览
+          files.forEach((file) => {
+            const img = document.createElement("img");
+            img.src = URL.createObjectURL(file);
+            preview.appendChild(img);
+          });
+        });
+
+        convertBtn.addEventListener("click", async () => {
+          convertBtn.disabled = true;
+          convertBtn.textContent = "转换中...";
+
+          try {
+            const files = Array.from(imageInput.files);
+            if (files.length === 0) {
+              throw new Error("请先选择图片");
+            }
+
+            const converter = new ImageToVideoConverter();
+            await converter.encodeImages(files);
+            const videoBlob = converter.getVideoBlob();
+            console.log("视频大小:", videoBlob);
+            // 检查blob大小
+            if (videoBlob.size === 0) {
+              throw new Error("生成的视频为空，请检查图片格式");
+            }
+
+            outputVideo.src = URL.createObjectURL(videoBlob);
+            outputVideo.style.display = "block";
+            await converter.cleanup();
+          } catch (error) {
+            console.error("转换失败:", error);
+            alert("视频转换失败: " + error.message);
+          } finally {
+            convertBtn.disabled = false;
+            convertBtn.textContent = "转换为视频";
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
